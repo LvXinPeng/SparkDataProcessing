@@ -48,7 +48,14 @@
       <version>1.2.62</version>
     </dependency>
 
-    <dependency>
+      <!-- https://mvnrepository.com/artifact/org.spark-project.hive/hive-exec -->
+      <dependency>
+          <groupId>org.spark-project.hive</groupId>
+          <artifactId>hive-exec</artifactId>
+          <version>1.2.1.spark2</version>
+      </dependency>
+
+      <dependency>
       <groupId>com.svw.mos</groupId>
       <artifactId>mos-commons</artifactId>
       <version>4.0.10</version>

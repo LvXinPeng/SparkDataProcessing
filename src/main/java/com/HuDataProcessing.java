@@ -7,11 +7,12 @@ import org.apache.commons.codec.binary.Base64;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.spark.SparkConf;
+import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
-import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.SQLContext;
 import org.apache.spark.sql.api.java.UDF1;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.streaming.Durations;
@@ -31,6 +32,22 @@ import java.util.Map;
  * Hello world!
  */
 public class HuDataProcessing {
+
+    public static class SQLContextSingleton {
+        private static SQLContext instance;
+
+        private SQLContextSingleton(SparkContext sparkContext) {
+
+        }
+
+        public static synchronized SQLContext getInstance(SparkContext sparkContext) {
+            if (instance == null) {
+                instance = new SQLContext(sparkContext);
+            }
+            return instance;
+        }
+    }
+
     public static void main(String[] args) throws InterruptedException {
 
         SparkConf conf = new SparkConf()
@@ -61,14 +78,15 @@ public class HuDataProcessing {
         JavaDStream<String> lines = directStream.map(consumerRecord -> consumerRecord.value());
 
         lines.foreachRDD(rdd -> {
-            SparkSession spark = SparkSession.builder()
+            SQLContext sqlContext = SQLContextSingleton.getInstance(rdd.context());
+            /*SparkSession spark = SparkSession.builder()
 //                .config("spark.sql.warehouse.dir", warehouseLocaion)
 //                    .config("hive.exec.dynamic.partition", "true")
 //                    .config("hive.exec.dynamic.partition.mode", "nonstrict")
 //                    .config("hive.exec.max.dynamic.partitions", 2000)
                     .enableHiveSupport()
-                    .getOrCreate();
-            spark.udf().register("debase64", new UDF1<String, String>() {
+                    .getOrCreate();*/
+                    sqlContext.udf().register("debase64", new UDF1<String, String>() {
                 @Override
                 public String call(String payload) {
 
@@ -79,27 +97,38 @@ public class HuDataProcessing {
                 }
             }, DataTypes.StringType);
 
-            Dataset<Row> rowDataSet = spark.read().json(rdd);
+            Dataset<Row> rowDataSet = sqlContext.read().json(rdd);
             rowDataSet.registerTempTable("huRowData");
-            Dataset<Row> extractDataSet = spark.sql("select client_id as vin, debase64(payload) as data from huRowData");
+            Dataset<Row> extractDataSet = sqlContext.sql("select *, debase64(payload) as data from huRowData");
+//            extractDataSet.show();
 
             JavaRDD<String> jsonDataSet = extractDataSet.toJSON().toJavaRDD().map(new Function<String, String>() {
 
                 @Override
                 public String call(String st) {
-                    return st.replaceAll("\\\\\"", "\"")
+                    System.out.println(st);
+                    String replaceFirst = st.replaceAll("\\\\\"", "\"")
                             .replaceFirst(":\"\\{", ":{")
                             .replaceFirst("\"} *$", "}");
+                    System.out.println(replaceFirst);
+                    return replaceFirst;
                 }
             });
-            Dataset<Row> analysisDataSet = spark.read().json(jsonDataSet);
+            Dataset<Row> analysisDataSet = sqlContext.read().json(jsonDataSet);
             analysisDataSet.registerTempTable("huData");
-            Dataset<Row> huDataSet = spark.sql("select vin,data.* from huData");
+            Dataset<Row> huDataSet = sqlContext.sql("select client_id as vin, data.userId, data.account, data.longitude, " +
+                    "data.latitude, data.speed, data.reportTime from huData");
 
-            huDataSet.show();
+            try {
+                huDataSet.show();
+            } catch (Exception e) {
+                e.printStackTrace();
+                e.getCause();
+            }
+
             huDataSet.write().insertInto("tmp.hu_position_analysis_tmp");
-
-            spark.close();
+//            spark.stop();
+//            spark.close();
 
         });
         jsc.start();

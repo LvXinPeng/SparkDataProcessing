@@ -4,18 +4,13 @@ import com.alibaba.fastjson.JSON;
 import com.utils.DataFrame;
 import com.utils.DataFrames;
 import org.apache.commons.codec.binary.Base64;
-import org.apache.hadoop.hive.metastore.api.EnvironmentContext;
-import org.apache.hadoop.hive.ql.metadata.Hive;
-import org.apache.hadoop.hive.ql.metadata.Table;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.spark.SparkConf;
-import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
-import org.apache.spark.sql.SQLContext;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.api.java.UDF1;
 import org.apache.spark.sql.types.DataTypes;
@@ -27,7 +22,6 @@ import org.apache.spark.streaming.kafka010.ConsumerStrategies;
 import org.apache.spark.streaming.kafka010.KafkaUtils;
 import org.apache.spark.streaming.kafka010.LocationStrategies;
 
-import java.lang.reflect.Method;
 import java.util.*;
 
 /**
@@ -55,13 +49,6 @@ public class HuDataProcessing {
     }
 
     public static void main(String[] args) throws InterruptedException, NoSuchMethodException {
-        Class<Hive> hiveClass = Hive.class;
-        Method alterTable = hiveClass.getMethod("alterTable", String.class, Table.class, EnvironmentContext.class);
-        Method alterTable2 = hiveClass.getMethod("alterTable", String.class, Table.class, boolean.class, EnvironmentContext.class);
-        System.out.println(alterTable.getName());
-        System.out.println(alterTable);
-        System.out.println(alterTable2.getName());
-        System.out.println(alterTable2);
 
         SparkConf conf = new SparkConf()
                 .setAppName("hu_data_hive")
@@ -108,7 +95,7 @@ public class HuDataProcessing {
                     && Arrays.toString(rowDataSet.columns()).contains("client_id")) {
                 rowDataSet.registerTempTable("huRowData");
                 Dataset<Row> extractDataSet = spark.sql("select *, debase64(payload) as data from huRowData");
-//            extractDataSet.show();
+
 
                 JavaRDD<String> jsonDataSet = extractDataSet.toJSON().toJavaRDD().map(new Function<String, String>() {
 
@@ -124,8 +111,8 @@ public class HuDataProcessing {
                 });
                 Dataset<Row> analysisDataSet = spark.read().json(jsonDataSet);
                 analysisDataSet.registerTempTable("huData");
-                Dataset<Row> huDataSet = spark.sql("select client_id as vin, data.userId, data.account, " +
-                        "data.longitude, data.latitude, data.speed, data.reportTime from huData");
+                Dataset<Row> huDataSet = spark.sql("select client_id as vin, data.userId, data.account" +
+                        ", data.longitude, data.latitude, data.speed, CAST(data.reportTime/1000 AS BIGINT) as reportTime from huData");
 
                 try {
                     huDataSet.show();
@@ -134,18 +121,12 @@ public class HuDataProcessing {
                     e.getCause();
                 }
                 // 写入hive
-//                huDataSet.registerTempTable("hu");
-//                spark.sql("insert into tmp.hu_position_analysis_tmp select * from hu");
                 try {
                     huDataSet.write().format("hive").mode("append").saveAsTable("tmp.hu_position_analysis_tmp");
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
-
-//                huDataSet.write().insertInto("tmp.hu_position_analysis_tmp");
             }
-//            spark.stop();
-//            spark.close();
 
         });
         jsc.start();

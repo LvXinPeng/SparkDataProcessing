@@ -41,6 +41,8 @@ public class HuDataProcessing {
                 instance = SparkSession
                         .builder()
                         .config(sparkConf)
+                        .config("hive.exec.dynamic.partition", true)
+                        .config("hive.exec.dynamic.partition.mode", "nonstrict")
                         .enableHiveSupport()
                         .getOrCreate();
             }
@@ -48,7 +50,12 @@ public class HuDataProcessing {
         }
     }
 
-    public static void main(String[] args) throws InterruptedException, NoSuchMethodException {
+    public static void main(String[] args) throws InterruptedException {
+
+        if (args.length < 2) {
+            System.out.println("The input parameters are invalid.");
+            return;
+        }
 
         SparkConf conf = new SparkConf()
                 .setAppName("hu_data_hive")
@@ -60,7 +67,9 @@ public class HuDataProcessing {
 
         Map<String, Object> kafkaParams = new HashMap<>();
         //kafka ConsumerParams kafkaConsumer消费者参数
-        kafkaParams.put("bootstrap.servers", "10.160.242.166:9092,10.160.242.253:9092,10.160.242.21:9092");
+//        kafkaParams.put("bootstrap.servers", "10.160.242.166:9092,10.160.242.253:9092,10.160.242.21:9092");
+//        kafkaParams.put("bootstrap.servers", "10.160.240.185:9092,10.160.240.187:9092,10.160.240.188:9092");
+        kafkaParams.put("bootstrap.servers", args[0]);
         kafkaParams.put("key.deserializer", StringDeserializer.class);
         kafkaParams.put("value.deserializer", StringDeserializer.class);
         kafkaParams.put("group.id", "atlas");
@@ -122,7 +131,10 @@ public class HuDataProcessing {
                 }
                 // 写入hive
                 try {
-                    huDataSet.write().format("hive").mode("append").saveAsTable("tmp.hu_position_analysis_tmp");
+//                    huDataSet.write().format("hive").mode("append").partitionBy("month").saveAsTable(args[1]);
+                    huDataSet.registerTempTable("tmp_hu_position_analysis_tmp");
+                    spark.sql("insert into " + args[1] + " partition(month)" +
+                            " select * , from_unixtime(unix_timestamp(),'yyyy-MM')from tmp_hu_position_analysis_tmp");
                 } catch (Exception e) {
                     e.printStackTrace();
                 }

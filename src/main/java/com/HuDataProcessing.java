@@ -27,7 +27,7 @@ import java.util.*;
 /**
  * Hello world!
  */
-public class HuDataProcessing {
+public class HDataProcessing {
 
     public static class SparkSessionSingleton {
         private static SparkSession instance;
@@ -58,7 +58,7 @@ public class HuDataProcessing {
         }
 
         SparkConf conf = new SparkConf()
-                .setAppName("hu_data_hive")
+                .setAppName("data_hive")
 //                .setMaster("local[*]")
                 .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
 
@@ -67,8 +67,7 @@ public class HuDataProcessing {
 
         Map<String, Object> kafkaParams = new HashMap<>();
         //kafka ConsumerParams kafkaConsumer消费者参数
-//        kafkaParams.put("bootstrap.servers", "10.160.242.166:9092,10.160.242.253:9092,10.160.242.21:9092");
-//        kafkaParams.put("bootstrap.servers", "10.160.240.185:9092,10.160.240.187:9092,10.160.240.188:9092");
+
         kafkaParams.put("bootstrap.servers", args[0]);
         kafkaParams.put("key.deserializer", StringDeserializer.class);
         kafkaParams.put("value.deserializer", StringDeserializer.class);
@@ -76,7 +75,7 @@ public class HuDataProcessing {
         kafkaParams.put("auto.offset.reset", "latest");
         kafkaParams.put("enable.auto.commit", false);
         //配置kafka topic
-        Collection<String> topics = Collections.singletonList("hu_data_collect_topic");
+        Collection<String> topics = Collections.singletonList("data_collect_topic");
 
         JavaInputDStream<ConsumerRecord<String, String>> directStream = KafkaUtils.createDirectStream(
                 jsc,
@@ -102,8 +101,8 @@ public class HuDataProcessing {
             Dataset<Row> rowDataSet = spark.read().json(rdd);
             if (Arrays.toString(rowDataSet.columns()).contains("payload")
                     && Arrays.toString(rowDataSet.columns()).contains("client_id")) {
-                rowDataSet.registerTempTable("huRowData");
-                Dataset<Row> extractDataSet = spark.sql("select *, debase64(payload) as data from huRowData");
+                rowDataSet.registerTempTable("hRowData");
+                Dataset<Row> extractDataSet = spark.sql("select *, debase64(payload) as data from hRowData");
 
 
                 JavaRDD<String> jsonDataSet = extractDataSet.toJSON().toJavaRDD().map(new Function<String, String>() {
@@ -119,22 +118,22 @@ public class HuDataProcessing {
                     }
                 });
                 Dataset<Row> analysisDataSet = spark.read().json(jsonDataSet);
-                analysisDataSet.registerTempTable("huData");
-                Dataset<Row> huDataSet = spark.sql("select client_id as vin, data.userId, data.account" +
-                        ", data.longitude, data.latitude, data.speed, CAST(data.reportTime/1000 AS BIGINT) as reportTime from huData");
+                analysisDataSet.registerTempTable("hData");
+                Dataset<Row> hDataSet = spark.sql("select client_id as v, data.userId, data.account" +
+                        ", data.longitude, data.latitude, data.speed, CAST(data.reportTime/1000 AS BIGINT) as reportTime from hData");
 
                 try {
-                    huDataSet.show();
+                    hDataSet.show();
                 } catch (Exception e) {
                     e.printStackTrace();
                     e.getCause();
                 }
                 // 写入hive
                 try {
-//                    huDataSet.write().format("hive").mode("append").partitionBy("month").saveAsTable(args[1]);
-                    huDataSet.registerTempTable("tmp_hu_position_analysis_tmp");
+//                    hDataSet.write().format("hive").mode("append").partitionBy("month").saveAsTable(args[1]);
+                    hDataSet.registerTempTable("tmp_h_analysis_tmp");
                     spark.sql("insert into " + args[1] + " partition(month)" +
-                            " select * , from_unixtime(unix_timestamp(),'yyyy-MM')from tmp_hu_position_analysis_tmp");
+                            " select * , from_unixtime(unix_timestamp(),'yyyy-MM')from tmp_h_analysis_tmp");
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
